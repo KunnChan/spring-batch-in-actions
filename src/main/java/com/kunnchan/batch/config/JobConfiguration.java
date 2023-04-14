@@ -1,6 +1,7 @@
 package com.kunnchan.batch.config;
 
 import com.kunnchan.batch.entity.Customer;
+import com.kunnchan.batch.listener.StepSkipListener;
 import com.kunnchan.batch.partition.ColumnRangePartitioner;
 import lombok.RequiredArgsConstructor;
 import org.springframework.batch.core.Job;
@@ -31,10 +32,12 @@ import org.springframework.transaction.PlatformTransactionManager;
 public class JobConfiguration {
 
 
+    private final StepSkipListener stepSkipListener;
+
     @Bean
     public ItemReader<Customer> reader() {
         FlatFileItemReader<Customer> itemReader = new FlatFileItemReader<>();
-        itemReader.setResource(new FileSystemResource("src/main/resources/customers.csv"));
+        itemReader.setResource(new FileSystemResource("src/main/resources/customers_short.csv"));
         itemReader.setName("csvReader");
         itemReader.setLinesToSkip(1);
         itemReader.setLineMapper(lineMapper());
@@ -60,7 +63,7 @@ public class JobConfiguration {
         DelimitedLineTokenizer lineTokenizer = new DelimitedLineTokenizer();
         lineTokenizer.setDelimiter(",");
         lineTokenizer.setStrict(false);
-        lineTokenizer.setNames("id", "firstName", "lastName", "email", "gender", "contactNo", "country", "dob");
+        lineTokenizer.setNames("id", "firstName", "lastName", "email", "gender", "contactNo", "country", "dob", "age");
 
         BeanWrapperFieldSetMapper<Customer> fieldSetMapper = new BeanWrapperFieldSetMapper<>();
         fieldSetMapper.setTargetType(Customer.class);
@@ -81,21 +84,33 @@ public class JobConfiguration {
     }
 
     @Bean
-    protected Step slaveStep(JobRepository jobRepository, PlatformTransactionManager transactionManager, ItemReader<Customer> reader,
-                         ItemProcessor<Customer, Customer> processor, CustomerWriter customerWriter) {
-        return new StepBuilder("slaveStep", jobRepository).<Customer, Customer> chunk(500, transactionManager)
-                .reader(reader).processor(processor).writer(customerWriter).build();
+    protected Step slaveStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
+                             ItemReader<Customer> reader, ItemProcessor<Customer, Customer> processor,
+                             CustomerWriter customerWriter,
+                             ExceptionSkipPolicy exceptionSkipPolicy) {
+        return new StepBuilder("slaveStep", jobRepository)
+                .<Customer, Customer> chunk(500, transactionManager)
+                .reader(reader)
+                .processor(processor)
+                .writer(customerWriter)
+                .faultTolerant()
+                //.skipLimit(100)
+                //.skip(NumberFormatException.class)
+                //.noSkip(IllegalArgumentException.class)
+                .listener(stepSkipListener)
+                .skipPolicy(exceptionSkipPolicy)
+                .build();
     }
 
-    @Bean
-    protected Step masterStep(JobRepository jobRepository, Step slaveStep, PartitionHandler partitionHandler, ColumnRangePartitioner partitioner) {
-        return new StepBuilder("masterStep", jobRepository).partitioner(slaveStep.getName(), partitioner)
-                .partitionHandler(partitionHandler).build();
-    }
+//    @Bean
+//    protected Step masterStep(JobRepository jobRepository, Step slaveStep, PartitionHandler partitionHandler, ColumnRangePartitioner partitioner) {
+//        return new StepBuilder("masterStep", jobRepository).partitioner(slaveStep.getName(), partitioner)
+//                .partitionHandler(partitionHandler).build();
+//    }
 
     @Bean(name = "firstBatchJob")
-    public Job job(JobRepository jobRepository, Step masterStep) {
-        return new JobBuilder("firstBatchJob", jobRepository).flow(masterStep).end().build();
+    public Job job(JobRepository jobRepository, Step slaveStep) {
+        return new JobBuilder("firstBatchJob", jobRepository).flow(slaveStep).end().build();
     }
 
     @Bean

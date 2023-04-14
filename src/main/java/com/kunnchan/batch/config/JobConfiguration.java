@@ -1,24 +1,23 @@
 package com.kunnchan.batch.config;
 
 import com.kunnchan.batch.entity.Customer;
-import com.kunnchan.batch.repository.CustomerRepository;
+import com.kunnchan.batch.partition.ColumnRangePartitioner;
 import lombok.RequiredArgsConstructor;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.job.builder.JobBuilder;
+import org.springframework.batch.core.partition.PartitionHandler;
+import org.springframework.batch.core.partition.support.TaskExecutorPartitionHandler;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemReader;
-import org.springframework.batch.item.ItemWriter;
-import org.springframework.batch.item.data.RepositoryItemWriter;
 import org.springframework.batch.item.file.FlatFileItemReader;
 import org.springframework.batch.item.file.LineMapper;
 import org.springframework.batch.item.file.mapping.BeanWrapperFieldSetMapper;
 import org.springframework.batch.item.file.mapping.DefaultLineMapper;
 import org.springframework.batch.item.file.transform.DelimitedLineTokenizer;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.FileSystemResource;
@@ -31,7 +30,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 @RequiredArgsConstructor
 public class JobConfiguration {
 
-    private final CustomerRepository customerRepository;
 
     @Bean
     public ItemReader<Customer> reader() {
@@ -48,13 +46,13 @@ public class JobConfiguration {
         return new CustomerProcessor();
     }
 
-    @Bean
-    public ItemWriter<Customer> writer() {
-        RepositoryItemWriter<Customer> writer = new RepositoryItemWriter<>();
-        writer.setRepository(customerRepository);
-        writer.setMethodName("save");
-        return writer;
-    }
+//    @Bean
+//    public ItemWriter<Customer> writer() {
+//        RepositoryItemWriter<Customer> writer = new RepositoryItemWriter<>();
+//        writer.setRepository(customerRepository);
+//        writer.setMethodName("save");
+//        return writer;
+//    }
 
     private LineMapper<Customer> lineMapper() {
         DefaultLineMapper<Customer> lineMapper = new DefaultLineMapper<>();
@@ -74,16 +72,30 @@ public class JobConfiguration {
     }
 
     @Bean
-    protected Step step1(JobRepository jobRepository, PlatformTransactionManager transactionManager, ItemReader<Customer> reader,
-                         ItemProcessor<Customer, Customer> processor, ItemWriter<Customer> writer,
-                         TaskExecutor taskExecutor) {
-        return new StepBuilder("step1", jobRepository).<Customer, Customer> chunk(10, transactionManager)
-                .reader(reader).processor(processor).writer(writer).taskExecutor(taskExecutor).build();
+    public PartitionHandler partitionHandler(Step slaveStep) {
+        TaskExecutorPartitionHandler taskExecutorPartitionHandler = new TaskExecutorPartitionHandler();
+        taskExecutorPartitionHandler.setGridSize(2);
+        taskExecutorPartitionHandler.setTaskExecutor(taskExecutor());
+        taskExecutorPartitionHandler.setStep(slaveStep);
+        return taskExecutorPartitionHandler;
+    }
+
+    @Bean
+    protected Step slaveStep(JobRepository jobRepository, PlatformTransactionManager transactionManager, ItemReader<Customer> reader,
+                         ItemProcessor<Customer, Customer> processor, CustomerWriter customerWriter) {
+        return new StepBuilder("slaveStep", jobRepository).<Customer, Customer> chunk(500, transactionManager)
+                .reader(reader).processor(processor).writer(customerWriter).build();
+    }
+
+    @Bean
+    protected Step masterStep(JobRepository jobRepository, Step slaveStep, PartitionHandler partitionHandler, ColumnRangePartitioner partitioner) {
+        return new StepBuilder("masterStep", jobRepository).partitioner(slaveStep.getName(), partitioner)
+                .partitionHandler(partitionHandler).build();
     }
 
     @Bean(name = "firstBatchJob")
-    public Job job(JobRepository jobRepository, @Qualifier("step1") Step step1) {
-        return new JobBuilder("firstBatchJob", jobRepository).preventRestart().start(step1).build();
+    public Job job(JobRepository jobRepository, Step masterStep) {
+        return new JobBuilder("firstBatchJob", jobRepository).flow(masterStep).end().build();
     }
 
     @Bean

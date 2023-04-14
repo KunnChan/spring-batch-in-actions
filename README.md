@@ -10,27 +10,26 @@ Java-17, Spring Boot 3, Spring Batch 5, MariaDB
 
 
 ### Ideas behind Spring batch
-#### Core component and Architecture
 
 ```mermaid
-graph LR
-    A[Square Rect] -- Link text --> B((Circle))
-    A --> C(Round Rect)
-    B --> D{Rhombus}
-    C --> D
+---
+title: Spring Batch Core Component/Architecture
+---
+flowchart LR
+    jl(Job Launcher) --> jr[Job Repository]
+    jr --> db1[(Database)]
+    jl --> jb[Job]
+    jb --> st1[Step]
+    jb --> st2[Step]
+    st1 --> itr1(ItemReader)
+    st1 --> itp1(ItemProcessor)
+    st1 --> itw1(ItemWriter)
+    st2 --> itr2(ItemReader)
+    st2 --> itp2(ItemProcessor)
+    st2 --> itw2(ItemWriter)
+    itr1 --> csv{{CSV}}
+    itw1 --> db2[(Database)]
+    
 
-```
 
-
-```mermaid
-sequenceDiagram
-    participant dotcom
-    participant iframe
-    participant viewscreen
-    dotcom->>iframe: loads html w/ iframe url
-    iframe->>viewscreen: request template
-    viewscreen->>iframe: html & javascript
-    iframe->>dotcom: iframe ready
-    dotcom->>iframe: set mermaid data on iframe
-    iframe->>iframe: render mermaid
 ```

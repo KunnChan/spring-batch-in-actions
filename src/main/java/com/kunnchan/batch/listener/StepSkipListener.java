@@ -5,10 +5,8 @@ import com.kunnchan.batch.entity.Customer;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.SkipListener;
-import org.springframework.stereotype.Component;
 
 @Slf4j
-@Component
 public class StepSkipListener implements SkipListener<Customer, Number> {
 
 
